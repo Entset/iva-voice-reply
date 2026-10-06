@@ -7,12 +7,12 @@ import { join } from "node:path";
 // id -> what OpenRouter needs. Gemini answers only raw pcm (24 kHz, 16-bit, mono).
 type Voice = { about: string; model: string; voice: string; format: "mp3" | "pcm" };
 const VOICE_LIST: Record<string, Voice> = {
+  erinome: { about: "женский, чёткий", model: "google/gemini-3.8-flash-tts", voice: "Erinome", format: "pcm" },
   eve: { about: "женский, бодрый, британский акцент", model: "x-ai/grok-voice-tts-1.0", voice: "eve", format: "mp3" },
-  kore: { about: "женский, твёрдый", model: "google/gemini-3.8-flash-tts", voice: "Kore", format: "pcm" },
   charon: { about: "мужской, информативный", model: "google/gemini-3.8-flash-tts", voice: "Charon", format: "pcm" },
   iapetus: { about: "мужской, чёткий", model: "google/gemini-3.8-flash-tts", voice: "Iapetus", format: "pcm" },
 };
-export const DEFAULT_VOICE = "eve";
+export const DEFAULT_VOICE = "erinome";
 export const VOICES: Record<string, string> = Object.fromEntries(
   Object.entries(VOICE_LIST).map(([id, v]) => [id, v.about]),
 );

@@ -4,8 +4,8 @@ import { test } from "node:test";
 import { isVoice, speakable } from "../sh.iva/extension/lib/voice.ts";
 
 test("only listed voices pass, prototype keys do not", () => {
-  for (const id of ["eve", "kore", "charon", "iapetus"]) assert.ok(isVoice(id));
-  for (const id of ["constructor", "toString", "__proto__", "ara", "", 1]) assert.ok(!isVoice(id));
+  for (const id of ["erinome", "eve", "charon", "iapetus"]) assert.ok(isVoice(id));
+  for (const id of ["constructor", "toString", "__proto__", "ara", "kore", "", 1]) assert.ok(!isVoice(id));
 });
 
 test("markup and links are not read aloud", () => {
