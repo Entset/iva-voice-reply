@@ -1,7 +1,7 @@
-// A 🔊 button under every long final reply in a Telegram chat. Code, not the model, puts it
-// there: a rule the model must remember is skipped often enough to be useless.
+// «🔊 Озвучить» under every long final reply in a Telegram chat, inside the reply itself.
+// Code, not the model, puts it there: a rule the model must remember is skipped too often.
 import { defineHook } from "eve/hooks";
-import { chatOf, sendSpeakButton, SILENT } from "../lib/voice";
+import { attachSpeakButton, SILENT } from "../lib/voice";
 
 // ponytail: fixed threshold; make it a setting if someone wants it tuned.
 const MIN_CHARS = 600;
@@ -14,11 +14,16 @@ export default defineHook({
         const data = (event as { data?: { message?: unknown; finishReason?: unknown } }).data;
         if (data?.finishReason !== "stop" || typeof data.message !== "string") return;
         const text = data.message.replace(SILENT, "").trim();
-        if (text.length < MIN_CHARS || text.includes('data="Озвучь"')) return;
-        const chat = chatOf(ctx, false);
-        if (chat) await sendSpeakButton(chat);
+        // The model's own buttons would be replaced by ours: leave such replies alone.
+        if (text.length < MIN_CHARS || text.includes("<tg-button")) return;
+        const attrs = (ctx as { session?: { auth?: { current?: { attributes?: unknown } | null } } })
+          .session?.auth?.current?.attributes as Record<string, unknown> | undefined;
+        const chatId = attrs?.chat_id;
+        const after = Number(attrs?.message_id);
+        if ((typeof chatId !== "string" && typeof chatId !== "number") || !Number.isInteger(after)) return;
+        await attachSpeakButton(String(chatId), after);
       } catch (error) {
-        console.error("[voice-reply] button not sent:", error instanceof Error ? error.message : error);
+        console.error("[voice-reply] button not attached:", error instanceof Error ? error.message : error);
       }
     },
   },

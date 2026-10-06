@@ -88,14 +88,13 @@ export function saveVoice(voice: string): void {
   writeFileSync(file, voice + "\n");
 }
 
-// Same place the core send_file reads the chat from. `fallback` sends a chatless (background)
-// turn to the owner; the button hook passes false so background turns get no button.
-export function chatOf(ctx: unknown, fallback = true): Chat | null {
+// Same place the core send_file reads the chat from; a chatless (background) turn goes to the owner.
+export function chatOf(ctx: unknown): Chat | null {
   const attrs = (ctx as { session?: { auth?: { current?: { attributes?: unknown } | null } } })
     ?.session?.auth?.current?.attributes as Record<string, unknown> | undefined;
   const id = attrs?.chat_id;
   if (typeof id !== "string" || !id.trim()) {
-    const owner = fallback ? (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "").split(",")[0]?.trim() : "";
+    const owner = (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "").split(",")[0]?.trim();
     return owner ? { id: owner, threadId: null } : null;
   }
   const thread = attrs?.message_thread_id;
@@ -109,21 +108,28 @@ export const DONE_NOTE =
   `Голосовое уже в чате. Твой финальный ответ — ровно строка ${SILENT} и ничего больше: ` +
   "она не отправляется. Никакого текста, эмодзи и кнопок.";
 
-// A quiet message with one 🔊 button; the tap comes back to Iva as the owner's «Озвучь».
-export async function sendSpeakButton(chat: Chat): Promise<void> {
-  const body: Record<string, unknown> = {
-    chat_id: chat.id,
-    text: "🔊",
-    disable_notification: true,
-    reply_markup: { inline_keyboard: [[{ text: "🔊 Озвучить", callback_data: "Озвучь" }]] },
-  };
-  if (chat.threadId) body.message_thread_id = chat.threadId;
-  await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: withTimeout(),
-  });
+// Attach «🔊 Озвучить» under the reply Iva has just delivered. The core drops the reply's
+// message_id, but in a chat ids grow one by one: the reply sits a few ids above the owner's
+// message. Walk down from the top: "not found" means no message there yet; the first bot
+// message that takes the button is the reply's last chunk. Any other error (a user's message,
+// a reply that cannot be edited) stops the walk, so the button never lands on an older message.
+// ponytail: guessed ids; upgrade to the real message_id if the core ever exposes it.
+const LOOKAHEAD = 15;
+const SPEAK_MARKUP = { inline_keyboard: [[{ text: "🔊 Озвучить", callback_data: "Озвучь" }]] };
+
+export async function attachSpeakButton(chatId: string, afterMessageId: number): Promise<number | null> {
+  for (let id = afterMessageId + LOOKAHEAD; id > afterMessageId; id--) {
+    const res = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: id, reply_markup: SPEAK_MARKUP }),
+      signal: withTimeout(),
+    });
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; description?: string } | null;
+    if (body?.ok) return id;
+    if (!/not found/i.test(body?.description ?? "")) return null;
+  }
+  return null;
 }
 
 // Markup read aloud is noise: tags, markdown marks, bare links.
