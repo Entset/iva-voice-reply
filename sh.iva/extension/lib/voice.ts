@@ -48,17 +48,42 @@ export function saveVoice(voice: string): void {
   writeFileSync(file, voice + "\n");
 }
 
-// Same place the core send_file reads the chat from.
-export function chatOf(ctx: unknown): Chat | null {
+// Same place the core send_file reads the chat from. `fallback` sends a chatless (background)
+// turn to the owner; the button hook passes false so background turns get no button.
+export function chatOf(ctx: unknown, fallback = true): Chat | null {
   const attrs = (ctx as { session?: { auth?: { current?: { attributes?: unknown } | null } } })
     ?.session?.auth?.current?.attributes as Record<string, unknown> | undefined;
   const id = attrs?.chat_id;
   if (typeof id !== "string" || !id.trim()) {
-    const fallback = (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "").split(",")[0]?.trim();
-    return fallback ? { id: fallback, threadId: null } : null;
+    const owner = fallback ? (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "").split(",")[0]?.trim() : "";
+    return owner ? { id: owner, threadId: null } : null;
   }
   const thread = attrs?.message_thread_id;
   return { id, threadId: typeof thread === "string" && thread ? thread : null };
+}
+
+// The model's reply after a voice message: Iva strips this line, nothing is left to send,
+// and eve still gets a non-empty answer (an empty one fails the turn).
+export const SILENT = "<!-- iva:silent -->";
+export const DONE_NOTE =
+  `Голосовое уже в чате. Твой финальный ответ — ровно строка ${SILENT} и ничего больше: ` +
+  "она не отправляется. Никакого текста, эмодзи и кнопок.";
+
+// A quiet message with one 🔊 button; the tap comes back to Iva as the owner's «Озвучь».
+export async function sendSpeakButton(chat: Chat): Promise<void> {
+  const body: Record<string, unknown> = {
+    chat_id: chat.id,
+    text: "🔊",
+    disable_notification: true,
+    reply_markup: { inline_keyboard: [[{ text: "🔊 Озвучить", callback_data: "Озвучь" }]] },
+  };
+  if (chat.threadId) body.message_thread_id = chat.threadId;
+  await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: withTimeout(),
+  });
 }
 
 // Markup read aloud is noise: tags, markdown marks, bare links.

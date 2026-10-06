@@ -2,10 +2,9 @@
 // Without `set`: one sample per voice, each with a "pick this" button (the tap comes back as
 // the owner's message "Голос <id>"). With `set`: save it and confirm in that voice.
 import { defineTool } from "eve/tools";
-import { chatOf, currentVoice, isVoice, saveVoice, say, VOICES } from "../lib/voice";
+import { DONE_NOTE, chatOf, currentVoice, isVoice, saveVoice, say, VOICES } from "../lib/voice";
 
 const SAMPLE = "Привет! Я Ива. Если тебе нравится, как я звучу, выбери этот голос.";
-const DONE = "Голосовые уже в чате. Заверши ход пустым ответом: без текста, эмодзи и кнопок.";
 
 export default defineTool({
   description:
@@ -29,7 +28,7 @@ export default defineTool({
       saveVoice(set);
       const sent = await say(chat, "Готово, теперь я буду озвучивать ответы этим голосом.", set,
         { caption: `✅ Голос по умолчанию: ${set} — ${VOICES[set]}` }, signal);
-      return sent.ok ? { ok: true, current: set, note: DONE } : sent;
+      return sent.ok ? { ok: true, current: set, note: DONE_NOTE } : sent;
     }
 
     const current = currentVoice();
@@ -41,6 +40,6 @@ export default defineTool({
       }, signal);
       if (!sent.ok) return sent;
     }
-    return { ok: true, current, note: DONE };
+    return { ok: true, current, note: DONE_NOTE };
   },
 });

@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "voice-reply",
-  "version": "0.2.0",
-  "description": "Озвучивает ответ голосом (OpenRouter TTS: Grok и Gemini) и присылает голосовым сообщением в чат; голос выбирается кнопками.",
+  "version": "0.3.0",
+  "description": "Озвучивает ответы Ивы голосовыми сообщениями в Telegram (OpenRouter TTS: Grok и Gemini): кнопка 🔊 под длинными ответами, выбор голоса.",
   "extensions": {
     "sh.iva": {}
   },

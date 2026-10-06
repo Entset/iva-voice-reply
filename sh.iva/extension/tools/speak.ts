@@ -1,10 +1,9 @@
 // Voice a reply into the chat of the turn. The model calls it `voice_reply__speak`.
 import { defineTool } from "eve/tools";
-import { chatOf, currentVoice, isVoice, say, speakable, VOICES } from "../lib/voice";
+import { DONE_NOTE, chatOf, currentVoice, isVoice, say, speakable, VOICES } from "../lib/voice";
 
 // ponytail: hard cap instead of chunking; ~10 min of speech, guards the balance.
 const MAX_CHARS = 8000;
-const DONE = "Голосовое уже в чате. Заверши ход пустым ответом: без текста, эмодзи и кнопок.";
 
 export default defineTool({
   description:
@@ -32,6 +31,6 @@ export default defineTool({
     const voice = isVoice(asked) ? asked : currentVoice();
     const signal = (ctx as { abortSignal?: AbortSignal })?.abortSignal;
     const sent = await say(chat, text, voice, {}, signal);
-    return sent.ok ? { ...sent, note: DONE } : sent;
+    return sent.ok ? { ...sent, note: DONE_NOTE } : sent;
   },
 });
