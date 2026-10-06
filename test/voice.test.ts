@@ -11,3 +11,9 @@ test("only listed voices pass, prototype keys do not", () => {
 test("markup and links are not read aloud", () => {
   assert.equal(speakable("**Итог:** <b>три</b> пункта, см. https://x.com/a"), "Итог: три пункта, см.");
 });
+
+test("only OpenRouter-shaped keys are accepted", async () => {
+  const { KEY_SHAPE } = await import("../sh.iva/extension/lib/voice.ts");
+  assert.ok(KEY_SHAPE.test("sk-or-v1-" + "a".repeat(64)));
+  for (const k of ["sk-proj-abc", "sk-or-short", "sk-or-v1-abc def" + "a".repeat(30), ""]) assert.ok(!KEY_SHAPE.test(k));
+});

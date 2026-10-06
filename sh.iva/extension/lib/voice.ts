@@ -1,7 +1,7 @@
 // Shared by the tools: TTS (OpenRouter, mp3) -> ffmpeg -> ogg/opus -> Telegram sendVoice,
 // plus the owner's chosen voice. Telegram shows a voice bubble only for ogg/opus.
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // id -> what OpenRouter needs. Gemini answers only raw pcm (24 kHz, 16-bit, mono).
@@ -27,9 +27,49 @@ const withTimeout = (signal?: AbortSignal) =>
 export type Chat = { id: string; threadId: string | null };
 export type Sent = { ok: true; seconds: number | null } | { ok: false; error: string };
 
-// The choice lives in data/plugin-data/voice-reply/: survives plugin updates and `iva update`.
-const voiceFile = () =>
-  join(process.env.ASSISTANT_DATA_DIR || "data", "plugin-data", "voice-reply", "voice");
+// The plugin's own data: data/plugin-data/voice-reply/. Survives plugin updates and `iva update`.
+const dataFile = (name: string) =>
+  join(process.env.ASSISTANT_DATA_DIR || "data", "plugin-data", "voice-reply", name);
+const voiceFile = () => dataFile("voice");
+const keyFile = () => dataFile("openrouter.key");
+
+// The key from .env wins; otherwise the one Iva saved with voice_reply__set_key. Read on every
+// call, so a saved key works at once, with no restart.
+export function openrouterKey(): string {
+  const env = (process.env.OPENROUTER_API_KEY ?? "").trim();
+  if (env) return env;
+  try {
+    return readFileSync(keyFile(), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+export const NO_KEY =
+  "нет ключа OpenRouter. Попроси владельца прислать ключ (sk-or-…, openrouter.ai/keys) и сохрани его " +
+  "voice_reply__set_key — он заработает сразу, без перезапуска.";
+
+export const KEY_SHAPE = /^sk-or-[A-Za-z0-9_-]{20,200}$/;
+
+// Ask OpenRouter about the key before keeping it: a typo must not look like a working setup.
+export async function checkKey(key: string): Promise<{ ok: true; remaining: number | null } | { ok: false; error: string }> {
+  const res = await fetch("https://openrouter.ai/api/v1/key", {
+    headers: { Authorization: `Bearer ${key}` },
+    signal: withTimeout(),
+  });
+  if (res.status === 401) return { ok: false, error: "OpenRouter не принял ключ (401): проверь, что он скопирован целиком" };
+  if (!res.ok) return { ok: false, error: `OpenRouter ${res.status}: ключ не проверен, попробуй позже` };
+  const data = ((await res.json().catch(() => null)) as { data?: { limit_remaining?: unknown } } | null)?.data;
+  return { ok: true, remaining: typeof data?.limit_remaining === "number" ? data.limit_remaining : null };
+}
+
+// Owner-only file: the key is a credential.
+export function saveKey(key: string): void {
+  const file = keyFile();
+  mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
+  writeFileSync(file, key + "\n", { mode: 0o600 });
+  chmodSync(file, 0o600);
+}
 
 export function currentVoice(): string {
   try {
@@ -101,7 +141,7 @@ async function tts(text: string, id: string, signal?: AbortSignal): Promise<Buff
   const res = await fetch("https://openrouter.ai/api/v1/audio/speech", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      Authorization: `Bearer ${openrouterKey()}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ model: v.model, input: text, voice: v.voice, response_format: v.format }),
@@ -123,7 +163,9 @@ function toOpus(audio: Buffer, pcm: boolean): Promise<Buffer> {
     let err = "";
     ff.stdout.on("data", (c: Buffer) => out.push(c));
     ff.stderr.on("data", (c: Buffer) => (err += c));
-    ff.on("error", reject);
+    ff.on("error", (e: NodeJS.ErrnoException) =>
+      reject(e.code === "ENOENT" ? new Error("на сервере нет ffmpeg: владелец ставит его сам (sudo apt install ffmpeg)") : e),
+    );
     ff.on("close", (code) =>
       code === 0 ? resolve(Buffer.concat(out)) : reject(new Error(`ffmpeg ${code}: ${err.slice(0, 300)}`)),
     );
@@ -164,13 +206,13 @@ export async function say(
   extra: { caption?: string; replyMarkup?: unknown } = {},
   signal?: AbortSignal,
 ): Promise<Sent> {
-  if (!process.env.OPENROUTER_API_KEY) return { ok: false, error: "не задан OPENROUTER_API_KEY в .env" };
+  if (!openrouterKey()) return { ok: false, error: NO_KEY };
   try {
     return await postVoice(chat, await toOpus(await tts(text, voice, signal), isPcm(voice)), extra, signal);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     let masked = message;
-    for (const secret of [process.env.TELEGRAM_BOT_TOKEN, process.env.OPENROUTER_API_KEY])
+    for (const secret of [process.env.TELEGRAM_BOT_TOKEN, openrouterKey()])
       if (secret) masked = masked.replaceAll(secret, "***");
     return { ok: false, error: masked };
   }
