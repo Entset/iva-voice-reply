@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "voice-reply",
+  "version": "0.2.0",
+  "description": "Озвучивает ответ голосом (OpenRouter TTS: Grok и Gemini) и присылает голосовым сообщением в чат; голос выбирается кнопками.",
+  "extensions": {
+    "sh.iva": {}
+  },
+  "author": {
+    "name": "Entset"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/Entset/iva-voice-reply",
+  "keywords": [
+    "iva",
+    "tts",
+    "voice",
+    "telegram",
+    "openrouter"
+  ]
+}
