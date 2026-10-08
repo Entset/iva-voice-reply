@@ -27,7 +27,10 @@ export default defineTool({
       return {
         ok: true,
         remaining_usd: checked.remaining,
-        note: "Ключ сохранён. Скажи владельцу, что озвучка готова, и посоветуй удалить сообщение с ключом из чата.",
+        note:
+          "Ключ сохранён. Скажи владельцу, что озвучка готова, и посоветуй удалить сообщение с ключом из чата. " +
+          "Если владелец хотел бесплатную озвучку — напомни, что режим можно пересмотреть (" +
+          "voice_reply__voice engine=local, если установлен локальный движок Silero).",
       };
     } catch (error) {
       return { ok: false, error: `ключ не сохранён: ${error instanceof Error ? error.message : String(error)}` };

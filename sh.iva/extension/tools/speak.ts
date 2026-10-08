@@ -1,6 +1,6 @@
 // Voice a reply into the chat of the turn. The model calls it `voice_reply__speak`.
 import { defineTool } from "eve/tools";
-import { DONE_NOTE, chatOf, currentVoice, isVoice, say, speakable, VOICES } from "../lib/voice";
+import { DONE_NOTE, chatOf, currentVoice, localReady, resolveVoice, say, speakable, VOICE_CATALOG } from "../lib/voice";
 
 // ponytail: hard cap instead of chunking; ~10 min of speech, guards the balance.
 const MAX_CHARS = 8000;
@@ -15,7 +15,11 @@ export default defineTool({
     type: "object",
     properties: {
       text: { type: "string", description: "Текст для озвучки" },
-      voice: { type: "string", enum: Object.keys(VOICES), description: "Разовый голос" },
+      voice: {
+        type: "string",
+        enum: VOICE_CATALOG.map((v) => v.id),
+        description: "Разовый голос (id вида zinaida.local или eve.cloud). Только если владелец явно просит другой голос",
+      },
     },
     required: ["text"],
     additionalProperties: false,
@@ -28,7 +32,14 @@ export default defineTool({
       return { ok: false, error: `текст ${text.length} знаков, предел ${MAX_CHARS}: сократи пересказ` };
     const chat = chatOf(ctx);
     if (!chat) return { ok: false, error: "нет чата для отправки" };
-    const voice = isVoice(asked) ? asked : currentVoice();
+    const voice = asked ? resolveVoice(String(asked)) : currentVoice();
+    if (!voice) {
+      const list = localReady()
+        ? VOICE_CATALOG.map((v) => v.id).join(", ")
+        : VOICE_CATALOG.filter((v) => v.engine === "cloud").map((v) => v.id).join(", ") +
+          " (локальный движок не установлен)";
+      return { ok: false, error: `неизвестный голос «${String(asked)}». Доступные: ${list}` };
+    }
     const signal = (ctx as { abortSignal?: AbortSignal })?.abortSignal;
     const sent = await say(chat, text, voice, {}, signal);
     return sent.ok ? { ...sent, note: DONE_NOTE } : sent;

@@ -1,37 +1,107 @@
-// Shared by the tools: TTS (OpenRouter, mp3) -> ffmpeg -> ogg/opus -> Telegram sendVoice,
-// plus the owner's chosen voice. Telegram shows a voice bubble only for ogg/opus.
+// Shared by the tools. Two engines:
+// - Cloud: OpenRouter TTS (mp3/pcm) -> ffmpeg -> ogg/opus -> Telegram sendVoice (a paid key).
+// - Local: Silero TTS v5 through tts_silero.py (stdin -> ogg/opus, no key, free).
+// The per-voice catalog lives in catalog.ts; this file owns resolution, engines and the pipelines.
 import { spawn } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_CLOUD, DEFAULT_LOCAL, LOCAL_SHOWCASE, CLOUD_SHOWCASE, VOICE_CATALOG } from "./catalog";
+import type { Engine, VoiceEntry } from "./catalog";
 
-// id -> what OpenRouter needs. Gemini answers only raw pcm (24 kHz, 16-bit, mono).
-type Voice = { about: string; model: string; voice: string; format: "mp3" | "pcm" };
-const VOICE_LIST: Record<string, Voice> = {
-  eve: { about: "женский, бодрый, британский акцент", model: "x-ai/grok-voice-tts-1.0", voice: "eve", format: "mp3" },
-  erinome: { about: "женский, чёткий", model: "google/gemini-3.8-flash-tts", voice: "Erinome", format: "pcm" },
-  charon: { about: "мужской, информативный", model: "google/gemini-3.8-flash-tts", voice: "Charon", format: "pcm" },
-  iapetus: { about: "мужской, чёткий", model: "google/gemini-3.8-flash-tts", voice: "Iapetus", format: "pcm" },
-};
-export const DEFAULT_VOICE = "eve";
-export const VOICES: Record<string, string> = Object.fromEntries(
-  Object.entries(VOICE_LIST).map(([id, v]) => [id, v.about]),
-);
+export { VOICE_CATALOG, CLOUD_SHOWCASE, LOCAL_SHOWCASE, DEFAULT_LOCAL, DEFAULT_CLOUD };
+export type { Engine, VoiceEntry };
 
-// Own keys only: `in` would also accept "constructor", "toString" and the like.
-export const isVoice = (id: unknown): id is string => typeof id === "string" && Object.hasOwn(VOICE_LIST, id);
-const voiceOf = (id: string) => VOICE_LIST[isVoice(id) ? id : DEFAULT_VOICE];
-// A stuck provider must not hang the turn.
+const byId = (id: string) => VOICE_CATALOG.find((v) => v.id === id);
+export const isVoice = (id: unknown): id is string => typeof id === "string" && byId(id) !== undefined;
+
+// A bare legacy id ("eve") goes to that voice on the setup's engine when it exists there
+// (eve is Cloud-only, zinaida is Local-only); otherwise the setup's default voice.
+export function resolveVoice(id: string): string | null {
+  const clean = String(id ?? "").trim();
+  const direct = byId(clean);
+  if (direct) return direct.id;
+  if (!clean) return null;
+  const bare = clean.replace(/\.(cloud|local)$/, "").trim().toLowerCase();
+  if (!bare) return null;
+  const wanted = VOICE_CATALOG.find((v) => v.id === `${bare}.${currentEngine()}`);
+  if (wanted) return wanted.id;
+  return currentEngine() === "local" ? DEFAULT_LOCAL : DEFAULT_CLOUD;
+}
+
+export const voiceOf = (id: string): VoiceEntry => byId(resolveVoice(id) ?? DEFAULT_CLOUD)!;
+
 const withTimeout = (signal?: AbortSignal) =>
   signal ? AbortSignal.any([signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000);
 
 export type Chat = { id: string; threadId: string | null };
 export type Sent = { ok: true; seconds: number | null } | { ok: false; error: string };
 
-// The plugin's own data: data/plugin-data/voice-reply/. Survives plugin updates and `iva update`.
-const dataFile = (name: string) =>
-  join(process.env.ASSISTANT_DATA_DIR || "data", "plugin-data", "voice-reply", name);
+// The plugin's own data: data/plugin-data/voice-reply/. Survives plugin and Iva updates;
+// the Silero engine itself lives here too (bin/tts_silero.py), so a plugin version bump
+// never orphans it.
+const dataDir = () => join(process.env.ASSISTANT_DATA_DIR || "data", "plugin-data", "voice-reply");
+const dataFile = (name: string) => join(dataDir(), name);
 const voiceFile = () => dataFile("voice");
+const engineFile = () => dataFile("engine");
 const keyFile = () => dataFile("openrouter.key");
+
+// Paths of the local engine; every part is overridable. Read on every call: a late install
+// unlocks Local without a rebuild or a restart.
+export function localPaths(): { py: string; script: string; model: string } {
+  return {
+    py: process.env.SILERO_PYTHON || "/home/lnsrtw/tts/venv/bin/python",
+    script: process.env.SILERO_SCRIPT || join(dataDir(), "bin", "tts_silero.py"),
+    model: process.env.SILERO_MODEL || "/home/lnsrtw/tts/v5_cis_base.pt",
+  };
+}
+
+// Is the local engine present? Read on every call: a late install unlocks it without a rebuild.
+export function localReady(): boolean {
+  const { py, script, model } = localPaths();
+  return existsSync(py) && existsSync(script) && existsSync(model);
+}
+
+// Which engine this installation runs: the saved choice or, before the first choice,
+// whatever is actually ready — local when the Silero engine is present, cloud otherwise.
+export function currentEngine(): Engine {
+  try {
+    const saved = readFileSync(engineFile(), "utf8").trim();
+    if (saved === "local") return localReady() ? "local" : "cloud";
+    if (saved === "cloud") return "cloud";
+  } catch {
+    /* nothing chosen yet */
+  }
+  return localReady() ? "local" : "cloud";
+}
+
+// One-time choice of the engine ("платный" / "бесплатный" at install). Does not touch the
+// saved voice: the voice picker runs right after and saves a voice of that engine.
+export function saveEngine(engine: Engine): void {
+  const file = engineFile();
+  mkdirSync(join(file, ".."), { recursive: true });
+  writeFileSync(file, engine + "\n");
+}
+
+export function currentVoice(): string {
+  try {
+    const saved = readFileSync(voiceFile(), "utf8").trim();
+    if (saved && isVoice(saved)) return saved;
+  } catch {
+    /* nothing chosen yet */
+  }
+  const env = (process.env.VOICE_REPLY_VOICE ?? "").trim();
+  if (env) {
+    const resolved = resolveVoice(env);
+    if (resolved) return resolved;
+  }
+  return currentEngine() === "local" ? DEFAULT_LOCAL : DEFAULT_CLOUD;
+}
+
+export function saveVoice(voice: string): void {
+  const file = voiceFile();
+  mkdirSync(join(file, ".."), { recursive: true });
+  writeFileSync(file, voice + "\n");
+}
 
 // The key from .env wins; otherwise the one Iva saved with voice_reply__set_key. Read on every
 // call, so a saved key works at once, with no restart.
@@ -45,9 +115,10 @@ export function openrouterKey(): string {
   }
 }
 
+// A Local engine needs no key, so an empty one is not an error for it; the callers check per engine.
 export const NO_KEY =
   "нет ключа OpenRouter. Попроси владельца прислать ключ (sk-or-…, openrouter.ai/keys) и сохрани его " +
-  "voice_reply__set_key — он заработает сразу, без перезапуска.";
+  "voice_reply__set_key — он заработает сразу, без перезапуска. Или выбери бесплатный локальный движок.";
 
 export const KEY_SHAPE = /^sk-or-[A-Za-z0-9_-]{20,200}$/;
 
@@ -69,23 +140,6 @@ export function saveKey(key: string): void {
   mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
   writeFileSync(file, key + "\n", { mode: 0o600 });
   chmodSync(file, 0o600);
-}
-
-export function currentVoice(): string {
-  try {
-    const saved = readFileSync(voiceFile(), "utf8").trim();
-    if (isVoice(saved)) return saved;
-  } catch {
-    /* nothing chosen yet */
-  }
-  const env = process.env.VOICE_REPLY_VOICE ?? "";
-  return isVoice(env) ? env : DEFAULT_VOICE;
-}
-
-export function saveVoice(voice: string): void {
-  const file = voiceFile();
-  mkdirSync(join(file, ".."), { recursive: true });
-  writeFileSync(file, voice + "\n");
 }
 
 // Same place the core send_file reads the chat from; a chatless (background) turn goes to the owner.
@@ -142,7 +196,7 @@ export function speakable(text: string): string {
     .trim();
 }
 
-async function tts(text: string, id: string, signal?: AbortSignal): Promise<Buffer> {
+async function ttsCloud(text: string, id: string, signal?: AbortSignal): Promise<Buffer> {
   const v = voiceOf(id);
   const res = await fetch("https://openrouter.ai/api/v1/audio/speech", {
     method: "POST",
@@ -150,14 +204,41 @@ async function tts(text: string, id: string, signal?: AbortSignal): Promise<Buff
       Authorization: `Bearer ${openrouterKey()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ model: v.model, input: text, voice: v.voice, response_format: v.format }),
+    body: JSON.stringify({ model: v.model, input: text, voice: v.wire, response_format: v.format }),
     signal: withTimeout(signal),
   });
   if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return Buffer.from(await res.arrayBuffer());
 }
 
-const isPcm = (id: string) => voiceOf(id).format === "pcm";
+// Silero on the server: plain text in, ogg/opus out (ffmpeg inside tts_silero.py).
+function ttsLocal(text: string, id: string): Promise<Buffer> {
+  const { py, script } = localPaths();
+  const speaker = voiceOf(id).speaker ?? "ru_zinaida";
+  const rate = process.env.SILERO_RATE || "48000";
+  return new Promise((resolve, reject) => {
+    const proc = spawn(py, [script, "--speaker", speaker, "--rate", rate], { stdio: ["pipe", "pipe", "pipe"] });
+    const out: Buffer[] = [];
+    let err = "";
+    proc.stdout.on("data", (c: Buffer) => out.push(c));
+    proc.stderr.on("data", (c: Buffer) => (err += c));
+    proc.on("error", (e: NodeJS.ErrnoException) =>
+      reject(e.code === "ENOENT" ? new Error(`локальный движок не найден: ${py}`) : e),
+    );
+    proc.on("close", (code) => {
+      const clean = err
+        .replace(/<torch_package_\d+>\.[^\n]*\n/g, "")
+        .replace(/SyntaxWarning[^\n]*\n/g, "")
+        .trim();
+      if (code === 0 && !clean) {
+        resolve(Buffer.concat(out));
+        return;
+      }
+      reject(new Error(`Silero: ${clean.slice(0, 300) || `код ${code}, пустой вывод`}`));
+    });
+    proc.stdin.end(text, "utf8");
+  });
+}
 
 function toOpus(audio: Buffer, pcm: boolean): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -212,14 +293,35 @@ export async function say(
   extra: { caption?: string; replyMarkup?: unknown } = {},
   signal?: AbortSignal,
 ): Promise<Sent> {
-  if (!openrouterKey()) return { ok: false, error: NO_KEY };
+  if (voiceOf(voice).engine === "cloud") {
+    if (!openrouterKey()) return { ok: false, error: NO_KEY };
+    try {
+      return await postVoice(
+        chat,
+        await toOpus(await ttsCloud(text, voice, signal), voiceOf(voice).format === "pcm"),
+        extra,
+        signal,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      let masked = message;
+      for (const secret of [process.env.TELEGRAM_BOT_TOKEN, openrouterKey()])
+        if (secret) masked = masked.replaceAll(secret, "***");
+      return { ok: false, error: masked };
+    }
+  }
+  if (!localReady())
+    return {
+      ok: false,
+      error:
+        "локальный движок Silero на этом сервере не установлен (нужен " +
+        `${localPaths().py} и ${localPaths().script}). Поставь Silero TTS v5 или выбери облачный (платный) режим.`,
+    };
   try {
-    return await postVoice(chat, await toOpus(await tts(text, voice, signal), isPcm(voice)), extra, signal);
+    return await postVoice(chat, await ttsLocal(text, voice), extra, signal);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    let masked = message;
-    for (const secret of [process.env.TELEGRAM_BOT_TOKEN, openrouterKey()])
-      if (secret) masked = masked.replaceAll(secret, "***");
-    return { ok: false, error: masked };
+    const token = process.env.TELEGRAM_BOT_TOKEN ?? "";
+    return { ok: false, error: token ? message.replaceAll(token, "***") : message };
   }
 }
