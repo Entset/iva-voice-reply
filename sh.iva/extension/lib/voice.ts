@@ -5,8 +5,8 @@
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_CLOUD, DEFAULT_LOCAL, LOCAL_SHOWCASE, CLOUD_SHOWCASE, VOICE_CATALOG } from "./catalog";
-import type { Engine, VoiceEntry } from "./catalog";
+import { DEFAULT_CLOUD, DEFAULT_LOCAL, LOCAL_SHOWCASE, CLOUD_SHOWCASE, VOICE_CATALOG } from "./catalog.ts";
+import type { Engine, VoiceEntry } from "./catalog.ts";
 
 export { VOICE_CATALOG, CLOUD_SHOWCASE, LOCAL_SHOWCASE, DEFAULT_LOCAL, DEFAULT_CLOUD };
 export type { Engine, VoiceEntry };
@@ -25,7 +25,9 @@ export function resolveVoice(id: string): string | null {
   if (!bare) return null;
   const wanted = VOICE_CATALOG.find((v) => v.id === `${bare}.${currentEngine()}`);
   if (wanted) return wanted.id;
-  return currentEngine() === "local" ? DEFAULT_LOCAL : DEFAULT_CLOUD;
+  const anywhere = VOICE_CATALOG.find((v) => v.bare === bare);
+  // an unknown or engine-missing name is not a voice: the caller answers with the list
+  return anywhere ? (anywhere.engine === "local" ? DEFAULT_LOCAL : DEFAULT_CLOUD) : null;
 }
 
 export const voiceOf = (id: string): VoiceEntry => byId(resolveVoice(id) ?? DEFAULT_CLOUD)!;

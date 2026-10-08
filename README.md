@@ -35,7 +35,7 @@
 - Ива с поддержкой плагинов (`iva plugin`)
 - `ffmpeg` на сервере (`sudo apt install ffmpeg`) — нужен для обоих режимов
 - Для платного режима: ключ [OpenRouter](https://openrouter.ai) с положительным балансом
-- Для бесплатного режима: локальный движок Silero v5 (см. ниже)
+- Для бесплатного режима: локальный движок Silero v5 (см. ниже). **Требования к серверу:** ~1 ГБ на диске (окружение Python с torch ≈900 МБ + модель 88 МБ), ~1 ГБ оперативной памяти при синтезе, достаточно 1–2 vCPU: секунда речи собирается примерно за 0.15–0.3 с на одном ядре.
 
 ## Установка бесплатного движка (Silero v5)
 
@@ -49,11 +49,19 @@ venv/bin/pip install numpy omegaconf num2words silero-stress
 curl -L https://models.silero.ai/models/tts/ru/v5_cis_base.pt -o v5_cis_base.pt
 ```
 
-Скрипт движка плагин хранит в `data/plugin-data/voice-reply/bin/tts_silero.py`.
-Пути переопределяются через `.env` (по умолчанию: `SILERO_PYTHON=/home/lnsrtw/tts/venv/bin/python`, модель `~/tts/v5_cis_base.pt`):
+Скрипт движка лежит в репозитории: `bin/tts_silero.py`. Скопируйте его в постоянное место плагина (оно переживает обновления плагина и Ивы):
 
 ```bash
-echo 'SILERO_PYTHON=/home/lnsrtw/tts/venv/bin/python' >> ~/iva/.env
+mkdir -p ~/iva/data/plugin-data/voice-reply/bin
+cp bin/tts_silero.py ~/iva/data/plugin-data/voice-reply/bin/
+chmod +x ~/iva/data/plugin-data/voice-reply/bin/tts_silero.py
+```
+
+Пути по умолчанию под наш сервер (`/home/lnsrtw/tts/…`); для другого сервера переопределите их в `.env` Ивы:
+
+```bash
+echo 'SILERO_PYTHON=/home/ваш_путь/tts/venv/bin/python' >> ~/iva/.env
+echo 'SILERO_MODEL=/home/ваш_путь/tts/v5_cis_base.pt' >> ~/iva/.env
 ```
 
 Готовность движка проверяется на каждый вызов: установили после запуска Ивы — режим заработает без перезапуска (после `SILERO_PYTHON` в `.env` нужен `iva restart` или `/restart`).
