@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "voice-reply",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Озвучивает ответы Ивы голосовыми сообщениями в Telegram: два движка на выбор при установке — платный OpenRouter (Grok/Gemini) или бесплатный локальный Silero v5; кнопка 🔊 под длинными ответами, выбор голоса.",
   "extensions": {
     "sh.iva": {}
