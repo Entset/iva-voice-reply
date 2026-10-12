@@ -18,7 +18,7 @@ export default defineTool({
       voice: {
         type: "string",
         enum: VOICE_CATALOG.map((v) => v.id),
-        description: "Разовый голос (id вида zinaida.local или eve.cloud). Только если владелец явно просит другой голос",
+        description: "Разовый голос (id вида kseniya.local или eve.cloud). Только если владелец явно просит другой голос",
       },
     },
     required: ["text"],

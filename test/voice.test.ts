@@ -4,12 +4,12 @@ import { test } from "node:test";
 import { isVoice, resolveVoice, speakable } from "../sh.iva/extension/lib/voice.ts";
 
 test("only listed voices pass, prototype keys do not", () => {
-  for (const id of ["eve.cloud", "erinome.cloud", "charon.cloud", "iapetus.cloud", "zinaida.local", "eduard.local"]) assert.ok(isVoice(id));
+  for (const id of ["eve.cloud", "erinome.cloud", "charon.cloud", "iapetus.cloud", "kseniya.local", "eugene.local", "xenia.local", "aidar.local", "baya.local"]) assert.ok(isVoice(id));
   for (const id of ["constructor", "toString", "__proto__", "ara", "kore", "", 1]) assert.ok(!isVoice(id));
 });
 
 test("bare legacy ids resolve against the current engine", () => {
-  for (const id of ["eve", "erinome", "zinaida"]) assert.ok(resolveVoice(id));
+  for (const id of ["eve", "erinome", "kseniya"]) assert.ok(resolveVoice(id));
   for (const id of ["constructor", "toString", "__proto__", "ara", "kore", ""]) assert.ok(!resolveVoice(id));
 });
 

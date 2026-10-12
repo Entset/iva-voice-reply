@@ -18,12 +18,12 @@ except Exception as e:
     print(f"tts_py import error: {e}", file=sys.stderr)
     sys.exit(3)
 
-MODEL_PATH = os.environ.get("SILERO_MODEL", "/home/lnsrtw/tts/v5_cis_base.pt")
+MODEL_PATH = os.environ.get("SILERO_MODEL", "/home/lnsrtw/tts/v5_5_ru.pt")
 VENV = "/home/lnsrtw/tts/venv"
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--speaker", default="ru_zinaida")
+    ap.add_argument("--speaker", default="kseniya")
     ap.add_argument("--rate", type=int, default=48000)
     args = ap.parse_args()
     text = sys.stdin.read()

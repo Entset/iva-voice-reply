@@ -5,8 +5,8 @@
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_CLOUD, DEFAULT_LOCAL, LOCAL_SHOWCASE, CLOUD_SHOWCASE, VOICE_CATALOG } from "./catalog.ts";
-import type { Engine, VoiceEntry } from "./catalog.ts";
+import { DEFAULT_CLOUD, DEFAULT_LOCAL, LOCAL_SHOWCASE, CLOUD_SHOWCASE, VOICE_CATALOG } from "./catalog";
+import type { Engine, VoiceEntry } from "./catalog";
 
 export { VOICE_CATALOG, CLOUD_SHOWCASE, LOCAL_SHOWCASE, DEFAULT_LOCAL, DEFAULT_CLOUD };
 export type { Engine, VoiceEntry };
@@ -15,7 +15,7 @@ const byId = (id: string) => VOICE_CATALOG.find((v) => v.id === id);
 export const isVoice = (id: unknown): id is string => typeof id === "string" && byId(id) !== undefined;
 
 // A bare legacy id ("eve") goes to that voice on the setup's engine when it exists there
-// (eve is Cloud-only, zinaida is Local-only); otherwise the setup's default voice.
+// (eve is Cloud-only, kseniya is Local-only); otherwise the setup's default voice.
 export function resolveVoice(id: string): string | null {
   const clean = String(id ?? "").trim();
   const direct = byId(clean);
@@ -53,7 +53,7 @@ export function localPaths(): { py: string; script: string; model: string } {
   return {
     py: process.env.SILERO_PYTHON || "/home/lnsrtw/tts/venv/bin/python",
     script: process.env.SILERO_SCRIPT || join(dataDir(), "bin", "tts_silero.py"),
-    model: process.env.SILERO_MODEL || "/home/lnsrtw/tts/v5_cis_base.pt",
+    model: process.env.SILERO_MODEL || "/home/lnsrtw/tts/v5_5_ru.pt",
   };
 }
 
@@ -215,11 +215,17 @@ async function ttsCloud(text: string, id: string, signal?: AbortSignal): Promise
 
 // Silero on the server: plain text in, ogg/opus out (ffmpeg inside tts_silero.py).
 function ttsLocal(text: string, id: string): Promise<Buffer> {
-  const { py, script } = localPaths();
-  const speaker = voiceOf(id).speaker ?? "ru_zinaida";
+  const v = voiceOf(id);
+  const defaults = localPaths();
+  const py = defaults.py;
+  const script = defaults.script;
+  const model = v.spkModel ?? defaults.model;
   const rate = process.env.SILERO_RATE || "48000";
   return new Promise((resolve, reject) => {
-    const proc = spawn(py, [script, "--speaker", speaker, "--rate", rate], { stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn(py, [script, "--speaker", v.speaker ?? "kseniya", "--rate", rate], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, SILERO_MODEL: model },
+    });
     const out: Buffer[] = [];
     let err = "";
     proc.stdout.on("data", (c: Buffer) => out.push(c));
@@ -317,7 +323,7 @@ export async function say(
       ok: false,
       error:
         "локальный движок Silero на этом сервере не установлен (нужен " +
-        `${localPaths().py} и ${localPaths().script}). Поставь Silero TTS v5 или выбери облачный (платный) режим.`,
+        `${localPaths().py} и ${localPaths().script}). Поставь Silero TTS v5.5 или выбери облачный (платный) режим.`,
     };
   try {
     return await postVoice(chat, await ttsLocal(text, voice), extra, signal);
